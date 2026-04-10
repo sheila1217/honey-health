@@ -805,7 +805,12 @@ window.onload = async () => {
 const SYNC_ID = "12021336"; 
 const FIREBASE_URL = `https://honey-health-2026-default-rtdb.firebaseio.com/users/${SYNC_ID}.json`;
 async function syncToCloud() {
-    if (!navigator.onLine) return;
+    // 1. 如果沒網路，就先跳過，資料已經由 saveDB 存入 localStorage 了
+    if (!navigator.onLine) {
+        console.log("📡 目前處於離線狀態，資料已存入本地，待連線後同步");
+        return;
+    }
+
     try {
         await fetch(FIREBASE_URL, {
             method: 'PUT',
@@ -817,32 +822,41 @@ async function syncToCloud() {
     }
 }
 
+// 🌟 核心：監聽「上線」那一刻
+window.addEventListener('online', () => {
+    console.log("🌐 偵測到網路已連線！正在補傳資料...");
+    syncToCloud(); // 網路一回來，立刻補傳最新的 db
+});
+
 async function loadFromCloud() {
-    if (!navigator.onLine) return;
     try {
         const response = await fetch(FIREBASE_URL);
         const cloudData = await response.json();
         
-        // 🌟 如果雲端是空的，就維持現狀或給空物件，絕對不要讓 db 變成 null
-        if (cloudData) {
-            db = cloudData;
+        if (cloudData && typeof cloudData === 'object') {
+            // 🌟 修正：直接把雲端資料倒進 db，不要包在 dailyRecords 裡
+            db = cloudData; 
+            console.log("✅ 雲端資料同步完成");
         } else {
-            db = db || {}; 
+            const local = localStorage.getItem('honeyHealthDB');
+            if(local) db = JSON.parse(local);
         }
-        
-        localStorage.setItem('honey_health_db', JSON.stringify(db));
-        console.log("✅ 雲端資料同步完成");
-        
-        if (typeof renderCalendar === "function") renderCalendar();
+        renderCalendar(); 
+        // updateAllUI(); // 這裡已經在 renderCalendar 尾巴跑過了，可刪除
     } catch (err) {
-        console.log("❌ 雲端讀取異常", err);
+        console.error("❌ 雲端連線失敗", err);
+        renderCalendar();
     }
+    updateAllUI(); // ✅ 只更新畫面
 }
-// 🌟 覆蓋原本 839 列的 saveDB
 function saveDB() {
-    // 同時存本地與雲端
-    localStorage.setItem('honey_health_db', JSON.stringify(db));
-    syncToCloud(); 
+    // 確保鍵名與上面統一：'honeyHealthDB'
+    localStorage.setItem('honeyHealthDB', JSON.stringify(db));
+    
+    // 呼叫雲端同步功能
+    if (typeof syncToCloud === "function") {
+        syncToCloud();
+    }
 }
 
 function getDayKey(date, day) {
@@ -1058,21 +1072,27 @@ function changeMonth(offset) {
 
 // --- 5. 數據更新與計算 ---
 function updateAllUI() {
+    // 🌟 核心修正：路徑統一。不要再去 dailyRecords 找了，直接找 db[key]
     const key = getDayKey(currentMonthDate, selectedDay);
-    ensureDayExists(key);
-    const data = db[key];
+    ensureDayExists(key); 
 
-    // 🌟 核心防呆修正：如果這三行沒寫好，後面的 forEach 會直接讓叉叉功能死掉
-    // 確保即使沒資料，程式也會把它當作「空籃子」而不是「不存在」
-    const safeMeals = data.meals || [];
-    const safeWeightSports = data.sports?.weight || [];
-    const safeCardioSports = data.sports?.cardio || [];
+    const data = db[key]; // 👈 這行是關鍵！
 
-    // --- 1. 飲食計算 ---
+    // 確保基礎結構，預防 data 裡面缺東西
+    if (!data.meals) data.meals = [];
+    if (!data.sports) data.sports = { weight: [], cardio: [] };
+    if (!data.body) {
+        data.body = { m: { bmr: 1550, weight: '' }, n: { bmr: 1550, weight: '' } };
+    }
+
+    const safeMeals = data.meals;
+    const safeWeightSports = data.sports.weight;
+    const safeCardioSports = data.sports.cardio;
+
     let mealsTotal = { cal:0, p:0, c:0, f:0, fib:0, sug:0, sod:0 };
     let mealTypeStats = { '早餐':0, '午餐':0, '點心':0, '晚餐':0 };
 
-    // 🌟 使用 safeMeals 確保不噴紅字
+    // 這裡現在就不會噴錯了，因為上面定義了 safeMeals
     safeMeals.forEach(m => {
         mealsTotal.cal += (parseFloat(m.cal) || 0);
         mealsTotal.p += (parseFloat(m.protein) || 0);
@@ -1083,12 +1103,11 @@ function updateAllUI() {
         mealsTotal.sod += (parseFloat(m.sodium) || 0);
         if(mealTypeStats.hasOwnProperty(m.type)) mealTypeStats[m.type] += (parseFloat(m.cal) || 0);
     });
-// --- 2. 運動計算 ---
-    // 🌟 使用 safeWeightSports 和 safeCardioSports 確保叉叉能正常跑完
+
+    // 運動計算 (這裡也安全了)
     let weightKcal = safeWeightSports.reduce((sum, ex) => sum + (parseFloat(ex.kcal) || 0), 0);
     let cardioKcal = safeCardioSports.reduce((sum, cd) => sum + (parseFloat(cd.kcal) || 0), 0);
     let totalSportKcal = weightKcal + cardioKcal;
-
 // --- 3. 支出與赤字計算 (混合式淨值邏輯) ---
     const morningBMR = parseFloat(data.body.m.bmr) || 1550;
     const totalOut = morningBMR + totalSportKcal; // 補回這行，解決 ReferenceError
@@ -1290,7 +1309,6 @@ function updateAllUI() {
     setTxt('txt-f-percent', fPercent + '%');
     // 水分與資料庫儲存
     updateWaterUI(data.water);
-    saveDB();
 
     // --- 5. 新增功能：安全版預算與對撞條邏輯 ---
     const budgetDisplayEl = document.getElementById('summary-budget');
@@ -1390,9 +1408,9 @@ function addWater(amount) {
     const key = getDayKey(currentMonthDate, selectedDay);
     ensureDayExists(key);
     db[key].water = Math.max(0, (db[key].water || 0) + amount);
-    updateAllUI();
+    updateAllUI(); // 更新畫面
+    saveDB();      // 存資料
 }
-
 function updateWaterUI(val) {
     const goal = 2500; // 你的目標
     const percent = Math.min(Math.round((val / goal) * 100), 100);
