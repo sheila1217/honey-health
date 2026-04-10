@@ -1497,7 +1497,7 @@ function renderMealList(type) {
     const key = getDayKey(currentMonthDate, selectedDay);
     ensureDayExists(key);
     
-    // 🌟 確保結構完整，避免 reduce 時找不到 meals
+    // 確保結構完整，避免 reduce 時找不到 meals
     if (!db[key]) db[key] = {};
     if (!db[key].meals) db[key].meals = [];
     
@@ -1530,6 +1530,7 @@ function renderMealList(type) {
                     { icon: '🥩', label: '蛋', field: 'protein' },
                     { icon: '🍚', label: '碳', field: 'carbs' },
                     { icon: '🥑', label: '脂', field: 'fat' },
+                    { icon: '🥗', label: '纖', field: 'fiber' },  // 🌟 纖維補在脂肪後
                     { icon: '🍭', label: '糖', field: 'sugar' },
                     { icon: '🧂', label: '鈉', field: 'sodium' }
                 ].map(stat => `
