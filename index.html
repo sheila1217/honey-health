@@ -408,8 +408,11 @@
                 <h3 class="font-black text-amber-500 mb-4 flex items-center gap-2">
                     <i class="fas fa-pen-fancy"></i> 心情點滴
                 </h3>
-                <textarea id="input-notes" onchange="updateRecord('notes', this.value)" rows="3" placeholder="今天心情如何？..." 
-                          class="w-full text-sm border-2 border-amber-100 p-4 rounded-[25px] bg-white/70 focus:outline-none focus:border-amber-200 text-amber-700 font-medium resize-none"></textarea>
+                <textarea id="input-notes" 
+                    oninput="saveDayNote(this.value)" 
+                    rows="3" 
+                    placeholder="今天心情如何？..." 
+                    class="w-full text-sm border-2 border-amber-100 p-4 rounded-[25px] bg-white/70 focus:outline-none focus:border-amber-200 text-amber-700 font-medium resize-none"></textarea>
             </section>
         </div> <div id="edit-tab-diet" class="tab-content hidden p-6 space-y-6">
 
@@ -1418,7 +1421,13 @@ function updateAllUI() {
             tipEl.style.display = "none";
         }
     }
-}
+    const noteEl = document.getElementById('input-notes'); 
+    if (noteEl) {
+        noteEl.value = data.note || ''; 
+    }
+
+} // 👈 這是整段 updateAllUI 的結尾
+
 // --- 6. 飲食/運動/水 邏輯 ---
 function addWater(amount) {
     const key = getDayKey(currentMonthDate, selectedDay);
@@ -1599,6 +1608,14 @@ function updateMealData(type, index, field, value) {
         saveDB();
         updateAllUI(); // 同步更新摘要卡片與總結
     }
+}
+
+// 🌟 放在 script 標籤內任何一個 function 結束後的空白處即可
+function saveDayNote(text) {
+    const key = getDayKey(currentMonthDate, selectedDay);
+    ensureDayExists(key);
+    db[key].note = text; 
+    saveDB();
 }
 
 function addNewFoodItem() {
@@ -1887,6 +1904,83 @@ function calculateSleep() {
     if (eDate <= sDate) eDate.setDate(eDate.getDate() + 1);
     let diff = eDate - sDate, hrs = Math.floor(diff/3600000), mins = Math.floor((diff%3600000)/60000);
     display.innerText = `${hrs} 小時 ${mins} 分`;
+}
+// 🌟 放在 script 標籤的最下面
+document.addEventListener('DOMContentLoaded', function() {
+    // 綁定匯出按鈕
+    const btnExport = document.getElementById('btnExport');
+    if (btnExport) {
+        btnExport.addEventListener('click', function() {
+            const range = document.getElementById('exportRange').value;
+            exportDataByRange(range);
+        });
+    }
+
+    // 綁定匯入功能
+    const importFile = document.getElementById('importFile');
+    if (importFile) {
+        importFile.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    // 這裡做一個簡單的合併
+                    db = { ...db, ...importedData };
+                    saveDB(); // 存回雲端
+                    updateAllUI(); // 更新畫面
+                    alert('✅ 資料匯入成功！');
+                } catch (err) {
+                    alert('❌ 檔案格式錯誤，請確保是正確的 JSON 檔案');
+                }
+            };
+            reader.readAsText(file);
+        });
+    }
+});
+
+// 🌟 核心匯出函式
+function exportDataByRange(range) {
+    let exportDb = {};
+    const now = new Date();
+    const currentKey = getDayKey(currentMonthDate, selectedDay);
+
+    if (range === 'all') {
+        exportDb = db;
+    } else if (range === 'month') {
+        // 僅篩選本月的 Key (例如 2026-04)
+        const monthPrefix = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`;
+        Object.keys(db).forEach(k => {
+            if (k.startsWith(monthPrefix)) exportDb[k] = db[k];
+        });
+    } else if (range === 'week') {
+        // 最近 7 天
+        for (let i = 0; i < 7; i++) {
+            let d = new Date();
+            d.setDate(now.getDate() - i);
+            let k = getDayKey(d, d.getDate());
+            if (db[k]) exportDb[k] = db[k];
+        }
+    } else {
+        // 單日
+        if (db[currentKey]) exportDb[currentKey] = db[currentKey];
+    }
+
+    if (Object.keys(exportDb).length === 0) {
+        alert('該範圍內沒有資料可以匯出喔！');
+        return;
+    }
+
+    const dataStr = JSON.stringify(exportDb, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `health_data_${range}_${new Date().toISOString().slice(0,10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
 }
 </script>
 </body>
