@@ -859,6 +859,21 @@ function saveDB() {
     }
 }
 
+function normalizeData(data) {
+    return {
+        meals: data.meals || [],
+        sports: {
+            weight: data.sports?.weight || [],
+            cardio: data.sports?.cardio || []
+        },
+        body: data.body || {
+            m: { bmr: 1550 },
+            n: { bmr: 1550 }
+        },
+        water: data.water || 0
+    };
+}
+
 function getDayKey(date, day) {
     return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
 }
@@ -890,7 +905,8 @@ function showEditPage() {
         editView.classList.remove('hidden');
         const key = getDayKey(currentMonthDate, selectedDay);
         ensureDayExists(key); 
-        const data = db[key];
+        const data = normalizeData(db[key]); 
+        db[key] = data; 
 
         document.getElementById('edit-date-title').innerText = key;
 
@@ -1086,8 +1102,8 @@ function updateAllUI() {
     }
 
     const safeMeals = data.meals;
-    const safeWeightSports = data.sports.weight;
-    const safeCardioSports = data.sports.cardio;
+    const safeWeightSports = (data.sports?.weight) || [];
+    const safeCardioSports = (data.sports?.cardio) || [];
 
     let mealsTotal = { cal:0, p:0, c:0, f:0, fib:0, sug:0, sod:0 };
     let mealTypeStats = { '早餐':0, '午餐':0, '點心':0, '晚餐':0 };
@@ -1481,8 +1497,10 @@ function renderMealList(type) {
     const key = getDayKey(currentMonthDate, selectedDay);
     ensureDayExists(key);
     
-    // 防呆：如果 meals 不存在，先給它空陣列
+    // 🌟 確保結構完整，避免 reduce 時找不到 meals
+    if (!db[key]) db[key] = {};
     if (!db[key].meals) db[key].meals = [];
+    
     const meals = db[key].meals.filter(m => m.type === type);
 
     container.innerHTML = ''; 
@@ -1495,7 +1513,6 @@ function renderMealList(type) {
     const theme = config[type] || config['早餐'];
 
     meals.forEach((item) => {
-        // 找到該項目在原始陣列中的真實索引
         const realIdx = db[key].meals.indexOf(item);
         const cardHtml = `
         <div class="border-[1.5px] rounded-[22px] p-3 mb-3 relative shadow-sm" 
@@ -1508,11 +1525,13 @@ function renderMealList(type) {
             </div>
             <div class="grid grid-cols-2 gap-x-3 gap-y-2">
                 ${ [
-                    { icon: '🔥', label: '熱', field: 'cal', unit: 'kcal' },
-                    { icon: '⚖️', label: '克', field: 'weight', unit: 'g' },
-                    { icon: '🥩', label: '蛋', field: 'protein', unit: 'g' },
-                    { icon: '🍚', label: '碳', field: 'carbs', unit: 'g' },
-                    { icon: '🥑', label: '脂', field: 'fat', unit: 'g' }
+                    { icon: '🔥', label: '熱', field: 'cal' },
+                    { icon: '⚖️', label: '克', field: 'weight' },
+                    { icon: '🥩', label: '蛋', field: 'protein' },
+                    { icon: '🍚', label: '碳', field: 'carbs' },
+                    { icon: '🥑', label: '脂', field: 'fat' },
+                    { icon: '🍭', label: '糖', field: 'sugar' },
+                    { icon: '🧂', label: '鈉', field: 'sodium' }
                 ].map(stat => `
                     <div class="flex items-center">
                         <div class="flex items-center gap-1 w-8 shrink-0">
@@ -1521,7 +1540,7 @@ function renderMealList(type) {
                         </div>
                         <div class="relative flex-1">
                             <input type="number" value="${item[stat.field] || ''}" 
-                                   placeholder="0" class="w-full bg-white border-[1.5px] rounded-full pl-3 pr-7 py-1 text-sm font-black text-center outline-none"
+                                   placeholder="0" class="w-full bg-white border-[1.5px] rounded-full pl-3 pr-4 py-1 text-sm font-black text-center outline-none"
                                    style="border-color: ${theme.border}; color: ${theme.color};"
                                    oninput="updateMealData('${type}', ${realIdx}, '${stat.field}', this.value)">
                         </div>
@@ -1553,7 +1572,6 @@ function addNewFoodItem() {
     updateAllUI();
 }
 // 🌟 補回：刪除食材的函數 (對應妳飲食紀錄的叉叉)
-// 🌟 修正版：刪除食材的函數 (對應妳 renderMealList 傳進來的兩個參數)
 function deleteFoodItem(type, index) {
     console.log("嘗試刪除:", type, "項目索引:", index); // 偵錯用
     const key = getDayKey(currentMonthDate, selectedDay);
