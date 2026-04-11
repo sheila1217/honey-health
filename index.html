@@ -824,7 +824,13 @@ async function syncToCloud() {
         console.error("❌ 同步失敗", err);
     }
 }
-
+function getDayKey(date, day) {
+    if (!date) return '';
+    const Y = date.getFullYear();
+    const M = (date.getMonth() + 1).toString().padStart(2, '0');
+    const D = day.toString().padStart(2, '0');
+    return `${Y}-${M}-${D}`;
+}
 // 🌟 核心：監聽「上線」那一刻
 window.addEventListener('online', () => {
     console.log("🌐 偵測到網路已連線！正在補傳資料...");
@@ -864,32 +870,42 @@ function saveDB() {
 
 function normalizeData(data) {
     return {
+        // 這些是妳原本有的
         meals: data.meals || [],
         sports: {
             weight: data.sports?.weight || [],
             cardio: data.sports?.cardio || []
         },
         body: data.body || {
-            m: { bmr: 1550 },
-            n: { bmr: 1550 }
+            m: { bmr: 1550, weight:'', fat:'', muscle:'', vfat:'' },
+            n: { bmr: 1550, weight:'', fat:'', muscle:'', vfat:'' }
         },
-        water: data.water || 0
+        water: data.water || 0,
+        
+        // 🌟 必須補上這幾行，資料才不會被抹掉！
+        period: data.period || '無',
+        pooStatus: data.pooStatus || '無',
+        hasTear: data.hasTear || '無',
+        pooStatus2: data.pooStatus2 || '無',
+        hasTear2: data.hasTear2 || '無',
+        sleepStart: data.sleepStart || '',
+        sleepEnd: data.sleepEnd || '',
+        note: data.note || '' 
     };
-}
-
-function getDayKey(date, day) {
-    return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
 }
 
 function ensureDayExists(key) {
     if (!db[key]) {
         db[key] = { 
-            body: { m:{weight:0, fat:0, muscle:0, vfat:0, bmr:1550}, n:{weight:0, fat:0, muscle:0, vfat:0, bmr:0} },
+            body: { 
+                m:{weight:'', fat:'', muscle:'', vfat:'', bmr:1550}, 
+                n:{weight:'', fat:'', muscle:'', vfat:'', bmr:1550} 
+            },
             water: 0, 
             meals: [], 
             sports: { weight: [], cardio: [] },
             period: '無', 
-            notes: '',
+            note: '', // 🔥 修正：不是 notes
             sleepStart: '',
             sleepEnd: '',
             pooStatus: '無',
@@ -898,7 +914,29 @@ function ensureDayExists(key) {
             hasTear2: '無'
         };
     }
-    if (!db[key].sports) db[key].sports = { weight: [], cardio: [] };
+
+    const d = db[key];
+
+    // 🔥 防呆補齊（舊資料升級用）
+    if (!d.meals) d.meals = [];
+    if (!d.sports) d.sports = { weight: [], cardio: [] };
+
+    if (!d.body) {
+        d.body = { 
+            m: { bmr: 1550 }, 
+            n: { bmr: 1550 } 
+        };
+    }
+
+    // 👉 關鍵：舊資料補欄位（不覆蓋原本資料）
+    if (!('sleepStart' in d)) d.sleepStart = '';
+    if (!('sleepEnd' in d)) d.sleepEnd = '';
+    if (!('period' in d)) d.period = '無';
+    if (!('pooStatus' in d)) d.pooStatus = '無';
+    if (!('pooStatus2' in d)) d.pooStatus2 = '無';
+    if (!('hasTear' in d)) d.hasTear = '無';
+    if (!('hasTear2' in d)) d.hasTear2 = '無';
+    if (!('note' in d)) d.note = ''; // 🔥 重點
 }
 
 // --- 3. 頁面切換控制 ---
@@ -1421,11 +1459,45 @@ function updateAllUI() {
             tipEl.style.display = "none";
         }
     }
+
+// === 以下是修正後的身心狀態回填區塊 ===
+    // 1. 睡眠時間回填
+    const sleepStartEl = document.getElementById('input-sleep-start');
+    const sleepEndEl = document.getElementById('input-sleep-end');
+    if (sleepStartEl) sleepStartEl.value = data.sleepStart || '';
+    if (sleepEndEl) sleepEndEl.value = data.sleepEnd || '';
+    // 執行睡眠時數計算（如果有的話）
+    if (typeof calculateSleep === "function") calculateSleep(); 
+
+    // 2. 生理期回填 (ID: input-period)
+    const periodEl = document.getElementById('input-period');
+    if (periodEl) periodEl.value = data.period || '無';
+
+    // 3. 排便紀錄回填 (修正 ID 對應 HTML)
+    const pooEl = document.getElementById('input-poo-status');
+    const poo2El = document.getElementById('input-poo-status-2');
+    if (pooEl) pooEl.value = data.pooStatus || '無';
+    if (poo2El) poo2El.value = data.pooStatus2 || '無';
+
+    // 4. 肛裂紀錄回填 (補上原本漏掉的部分)
+    const tearEl = document.getElementById('input-has-tear');
+    const tear2El = document.getElementById('input-has-tear-2');
+    if (tearEl) tearEl.value = data.hasTear || '無';
+    if (tear2El) tear2El.value = data.hasTear2 || '無';
+
+    // 5. 體重相關輸入框回填
+    if (document.getElementById('m-weight')) document.getElementById('m-weight').value = data.body.m.weight || '';
+    if (document.getElementById('m-fat')) document.getElementById('m-fat').value = data.body.m.fat || '';
+    if (document.getElementById('m-muscle')) document.getElementById('m-muscle').value = data.body.m.muscle || '';
+    if (document.getElementById('n-weight')) document.getElementById('n-weight').value = data.body.n.weight || '';
+    if (document.getElementById('n-fat')) document.getElementById('n-fat').value = data.body.n.fat || '';
+
+    // 6. 心情點滴回填 (ID: input-note)
     const noteEl = document.getElementById('input-note'); 
     if (noteEl) {
         noteEl.value = data.note || ''; 
     }
-} // 👈 這是整段 updateAllUI 的結尾
+} // 👈 這是整個 updateAllUI 的結尾
 
 // --- 6. 飲食/運動/水 邏輯 ---
 function addWater(amount) {
@@ -1615,6 +1687,7 @@ function saveDayNote(text) {
     ensureDayExists(key);
     db[key].note = text; 
     saveDB();
+    updateAllUI(); // 👈 加這行（同步）
 }
 
 function addNewFoodItem() {
